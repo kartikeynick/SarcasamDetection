@@ -54,3 +54,36 @@ print(s[1]/result.shape[0])
 # #neg
 print(s[0])
 print(s[0]/result.shape[0])
+
+#positive label
+guess = 1
+
+true_pos = 0
+true_neg = 0
+false_pos = 0
+false_neg = 0
+for i, (index, row) in enumerate(result.iterrows()):
+    if guess == 0:
+        if row['is_sarcastic'] == guess:
+            true_neg += 1
+        else:
+            false_neg += 1
+    elif guess == 1:
+        if row['is_sarcastic'] == guess:
+            true_pos += 1
+        else:
+            false_pos += 1
+
+accuracy = (true_pos + true_neg) / (true_neg + true_pos + false_neg + false_pos)
+precision = true_pos / (true_pos + false_pos)
+recall = true_pos / (true_pos + false_neg)
+f1 = 2 * (precision * recall) / (precision + recall)
+
+print("accuracy")
+print(accuracy)
+print('precision')
+print(precision)
+print('recall')
+print(recall)
+print("f1")
+print(f1)
