@@ -10,7 +10,7 @@ tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
 
 
 def read_train_data(path):
-    data = pd.read_csv(path)
+    data = pd.read_csv(path).dropna().head(100)
     texts = data['comment'].tolist()
     labels = data['label'].tolist()
 
@@ -30,9 +30,13 @@ class MyDataset(torch.utils.data.Dataset):
         return len(self.labels)
 
 train_texts, train_labels = read_train_data('dataset/training_small.csv')
+val_texts, val_labels = read_train_data('dataset/validation.csv')
+
 
 train_encodings = tokenizer(train_texts, truncation=True, padding=True)
+val_encodings = tokenizer(val_texts, truncation=True, padding=True)
 train_dataset = MyDataset(train_encodings, train_labels)
+val_dataset = MyDataset(val_encodings, val_labels)
 
 from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
 
@@ -49,13 +53,18 @@ training_args = TrainingArguments(
 
 model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased")
 
+
 trainer = Trainer(
     model=model,                         # the instantiated 🤗 Transformers model to be trained
     args=training_args,                  # training arguments, defined above
     train_dataset=train_dataset,         # training dataset
-    # eval_dataset=val_dataset             # evaluation dataset
+    eval_dataset=val_dataset             # evaluation dataset
 )
+
 trainer.train()
+res = trainer.predict(val_dataset)
+print(res)
+
 
 # dataset = load_dataset('csv', data_files='dataset/training_small.csv')
 # print(dataset['train'])
