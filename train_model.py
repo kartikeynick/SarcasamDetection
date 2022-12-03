@@ -16,11 +16,11 @@ from transformers import DistilBertTokenizerFast
 
 tokenizer = DistilBertTokenizerFast.from_pretrained("distilbert-base-uncased")
 
-SKIP_TRAIN = False  # WARNING: setting to false will destroy contents of "my_model"
+SKIP_TRAIN = True  # WARNING: setting to false will destroy contents of "my_model"
 SKIP_TEST = False
 
 TRAIN_CAP = 500
-TEST_CAP = 100
+TEST_CAP = False
 
 
 def read_train_data(path, cap=False):
@@ -48,8 +48,8 @@ class MyDataset(torch.utils.data.Dataset):
         return len(self.labels)
 
 
-train_texts, train_labels = read_train_data("dataset/train.csv", 400)
-val_texts, val_labels = read_train_data("dataset/validation.csv", 100)
+train_texts, train_labels = read_train_data("dataset/train.csv", TRAIN_CAP)
+val_texts, val_labels = read_train_data("dataset/validation.csv", TEST_CAP)
 
 
 train_encodings = tokenizer(train_texts, truncation=True, padding=True)
