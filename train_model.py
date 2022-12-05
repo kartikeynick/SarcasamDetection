@@ -5,22 +5,37 @@ from transformers import (
     RobertaForSequenceClassification,
     Trainer,
     TrainingArguments,
+    TFRobertaModel,
+    EarlyStoppingCallback
 )
 import pandas as pd
 import shutil
+import math
 
 import torch
 import numpy as np
 import evaluate
-from transformers import DistilBertTokenizerFast
+from torch.utils.data import DataLoader
 
-tokenizer = DistilBertTokenizerFast.from_pretrained("distilbert-base-uncased")
+tokenizer = RobertaTokenizerFast.from_pretrained("roberta-base")
+torch.backends.cudnn.benchmark = True
 
-SKIP_TRAIN = True  # WARNING: setting to false will destroy contents of "my_model"
+SKIP_TRAIN = True #WARNING: setting to false will destroy contents of "my_model"
 SKIP_TEST = False
 
-TRAIN_CAP = 500
+TRAIN_CAP = False
 TEST_CAP = False
+
+BS=32
+GA_STEPS=1
+
+#share this variable for loading in val and test datasets depending on the task
+VAL_DATASET_PATH="dataset/parsed_sets/uc1_test.csv"
+TRAIN_DATASET_PATH="dataset/parsed_sets/uc1_train.csv"
+
+print(torch.cuda.is_available())
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(device)
 
 
 def read_train_data(path, cap=False):
@@ -48,53 +63,72 @@ class MyDataset(torch.utils.data.Dataset):
         return len(self.labels)
 
 
-train_texts, train_labels = read_train_data("dataset/train.csv", TRAIN_CAP)
-val_texts, val_labels = read_train_data("dataset/validation.csv", TEST_CAP)
 
-
-train_encodings = tokenizer(train_texts, truncation=True, padding=True)
+val_texts, val_labels = read_train_data(VAL_DATASET_PATH, TEST_CAP)
 val_encodings = tokenizer(val_texts, truncation=True, padding=True)
-train_dataset = MyDataset(train_encodings, train_labels)
 val_dataset = MyDataset(val_encodings, val_labels)
 
-from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
+print("done tokenizing test")
 
 
 if not SKIP_TRAIN:
+    train_texts, train_labels = read_train_data(TRAIN_DATASET_PATH, TRAIN_CAP)
+    train_encodings = tokenizer(train_texts, truncation=True, padding=True)
+    train_dataset = MyDataset(train_encodings, train_labels)
+    print("done tokenizing train")
     training_args = TrainingArguments(
         output_dir="./results",  # output directory
-        num_train_epochs=3,  # total number of training epochs
-        per_device_train_batch_size=16,  # batch size per device during training
+        num_train_epochs=2,  # total number of training epochs
+        per_device_train_batch_size=BS,  # batch size per device during training
+        fp16=True,
         per_device_eval_batch_size=64,  # batch size for evaluation
-        warmup_steps=500,  # number of warmup steps for learning rate scheduler
+        # warmup_steps=100,  # number of warmup steps for learning rate scheduler
         weight_decay=0.01,  # strength of weight decay
         logging_dir="./logs",  # directory for storing logs
         logging_steps=10,
+        gradient_accumulation_steps=GA_STEPS,
+        gradient_checkpointing=True,
+        # optim="adafactor",
+        load_best_model_at_end = True,
+        evaluation_strategy='steps',
+        save_steps=100
     )
 
-    model = DistilBertForSequenceClassification.from_pretrained(
-        "distilbert-base-uncased"
+    model = RobertaForSequenceClassification.from_pretrained(
+        "roberta-base"
     )
+
+    print(training_args.learning_rate)
+
+    # training_args.learning_rate *= math.sqrt(GA_STEPS*BS/8)
+    training_args.learning_rate /= 5
+    print(training_args.learning_rate)
+
 
     trainer = Trainer(
         model=model,  # the instantiated 🤗 Transformers model to be trained
         args=training_args,  # training arguments, defined above
         train_dataset=train_dataset,  # training dataset
         eval_dataset=val_dataset,  # evaluation dataset
+        callbacks = [EarlyStoppingCallback(early_stopping_patience = 5)]
     )
 
+    torch.cuda.empty_cache()
     trainer.train()
-    shutil.rmtree("my_model")
+    try:
+        shutil.rmtree("my_model")
+    except: 
+        pass
     trainer.save_model("my_model")
 if not SKIP_TEST:
-    model = DistilBertForSequenceClassification.from_pretrained("my_model")
+    model = RobertaForSequenceClassification.from_pretrained("my_model") #my model
     trainer = Trainer(
         model=model,  # the instantiated 🤗 Transformers model to be trained
-        train_dataset=train_dataset,  # training dataset
         eval_dataset=val_dataset,  # evaluation dataset
     )
 
-    preds_logits, labels, metrics = trainer.predict(val_dataset)
+    test_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
+    preds_logits, labels, metrics = trainer.prediction_loop(test_loader, description='prediction')
     preds = np.argmax(preds_logits, axis=-1)
     print(preds)
 
@@ -105,28 +139,3 @@ if not SKIP_TEST:
         res = metric.compute(predictions=preds, references=labels)
         print(res)
 
-
-# dataset = load_dataset('csv', data_files='dataset/training_small.csv')
-# print(dataset['train'])
-
-
-# model = RobertaForSequenceClassification.from_pretrained('roberta-base')
-# tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base', max_length = 512)
-
-# def tokenization(batched_text):
-#     return tokenizer(batched_text['comment'], padding = True, truncation=True)
-
-
-# train_data = dataset.map(tokenization, batched = True, batch_size = len(dataset))
-
-# # train_data.set_format('torch', columns=['input_ids', 'attention_mask', 'label'])
-
-# trainer = Trainer(
-#     model=model,
-#     train_dataset=train_data,
-#     # args=training_
-#     #args,
-#     # compute_metrics=compute_metrics,
-#     # eval_dataset=test_data
-# )
-# trainer.train()
